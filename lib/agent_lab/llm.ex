@@ -7,8 +7,8 @@ defmodule AgentLab.LLM do
   project root is used as a fallback and is gitignored:
 
       COMMANDCODE_API_KEY=...
-      COMMANDCODE_BASE_URL=https://.../v1
-      COMMANDCODE_MODEL=deepseek-v4.1-flash
+      COMMANDCODE_BASE_URL=https://api.commandcode.ai/provider/v1
+      COMMANDCODE_MODEL=deepseek/deepseek-v4.1-flash
   """
 
   @type config :: %{model: String.t(), base_url: String.t() | nil, api_key: String.t() | nil}
@@ -17,7 +17,7 @@ defmodule AgentLab.LLM do
   @spec config() :: config()
   def config do
     %{
-      model: env("COMMANDCODE_MODEL") || "deepseek-v4.1-flash",
+      model: env("COMMANDCODE_MODEL") || "deepseek/deepseek-v4.1-flash",
       base_url: env("COMMANDCODE_BASE_URL"),
       api_key: env("COMMANDCODE_API_KEY")
     }
@@ -64,6 +64,14 @@ defmodule AgentLab.LLM do
   end
 
   defp dotenv do
+    if Code.ensure_loaded?(Mix) and Mix.env() == :test do
+      %{}
+    else
+      read_dotenv()
+    end
+  end
+
+  defp read_dotenv do
     case File.read(".env") do
       {:ok, content} ->
         content

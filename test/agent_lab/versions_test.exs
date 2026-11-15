@@ -75,6 +75,28 @@ defmodule AgentLab.VersionsTest do
     assert AgentLab.Versions.current(@app, :bad) == m1
   end
 
+  test "current_score returns the score of the current version only" do
+    {:ok, m1} =
+      AgentLab.Versions.load(@app, :cs, """
+      defmodule Cs.V1 do
+        def hi, do: :v1
+      end
+      """)
+
+    {:ok, m2} =
+      AgentLab.Versions.load(@app, :cs, """
+      defmodule Cs.V2 do
+        def hi, do: :v2
+      end
+      """)
+
+    :ok = AgentLab.Versions.record_score(@app, :cs, m1, 0.9, nil)
+    assert AgentLab.Versions.current_score(@app, :cs) == nil
+
+    :ok = AgentLab.Versions.record_score(@app, :cs, m2, 0.4, m1)
+    assert AgentLab.Versions.current_score(@app, :cs) == 0.4
+  end
+
   test "discard never lands current on a previously discarded version" do
     {:ok, a} =
       AgentLab.Versions.load(@app, :seq, """

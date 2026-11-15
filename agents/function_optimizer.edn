@@ -1,0 +1,6 @@
+{:name "function_optimizer"
+ :role "function_optimizer"
+ :prompt "Improve solve/1 so its outputs match the expected value for every evaluation task."
+ :code_template "defmodule FunctionOptimizer.V0 do\n  def solve(x), do: x + 1\nend"
+ :tools []
+ :evaluation [{:input 1 :expect 2} {:input 2 :expect 4} {:input 3 :expect 6} {:input 4 :expect 8}]}

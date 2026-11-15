@@ -28,6 +28,6 @@ defmodule AgentLab.LLMTest do
   test "config/0 falls back to the default model" do
     System.delete_env("COMMANDCODE_MODEL")
 
-    assert LLM.config().model == "deepseek-v4.1-flash"
+    assert LLM.config().model == "deepseek/deepseek-v4.1-flash"
   end
 end
