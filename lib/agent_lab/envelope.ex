@@ -4,15 +4,7 @@ defmodule AgentLab.Envelope do
   @enforce_keys [:from, :type, :payload]
   defstruct [:from, :to, :topic, :type, :payload, :id, :ts]
 
-  @type t :: %__MODULE__{
-          from: term(),
-          to: term(),
-          topic: term(),
-          type: term(),
-          payload: term(),
-          id: term(),
-          ts: String.t()
-        }
+  @type t :: %__MODULE__{from: term(), to: term(), topic: term(), type: term(), payload: term(), id: term(), ts: String.t()}
 
   @doc "`to` is a pid, a registered name/role, or nil when `topic` is set."
   @spec new(term(), term(), term(), keyword()) :: t()
