@@ -89,7 +89,7 @@ defmodule AgentLab.App do
     rounds = Keyword.get(opts, :rounds, 1)
     setup(app_mod)
 
-    for _ <- 1..rounds, name <- app_mod.agents() do
+    for _ <- 1..rounds//1, name <- app_mod.agents() do
       improve(app_mod, name, propose)
     end
   end

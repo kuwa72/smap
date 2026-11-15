@@ -79,6 +79,13 @@ defmodule Apps.FunctionOptimizerTest do
     assert adopted["app"] == "function_optimizer"
   end
 
+  test "run/3 with rounds <= 0 runs setup but no improvement steps" do
+    propose = fn _current -> flunk("propose must not be called") end
+
+    assert App.run(FunctionOptimizer, propose, rounds: 0) == []
+    assert Versions.current(@app, @agent) != nil
+  end
+
   test "a worse proposal is rejected and the incumbent stays current" do
     propose = fn _current ->
       {:ok,
