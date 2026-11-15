@@ -8,7 +8,10 @@ defmodule Smap.Application do
     children = [
       AgentLab.Versions,
       AgentLab.Blackboard,
-      AgentLab.Transport
+      AgentLab.Transport,
+      {Registry, keys: :unique, name: AgentLab.Registry},
+      {DynamicSupervisor, name: AgentLab.Agents, strategy: :one_for_one},
+      {Task.Supervisor, name: AgentLab.TaskSupervisor}
     ]
 
     opts = [strategy: :one_for_one, name: Smap.Supervisor]
