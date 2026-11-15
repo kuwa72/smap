@@ -46,6 +46,12 @@ defmodule AgentLab.Versions do
     GenServer.call(__MODULE__, {:rollback, app, agent})
   end
 
+  @doc "Revert to the previous version; drops a lone unadopted version."
+  @spec discard(atom(), atom()) :: :ok
+  def discard(app, agent) do
+    GenServer.call(__MODULE__, {:discard, app, agent})
+  end
+
   @doc "Point current at a previously loaded version."
   @spec activate(atom(), atom(), module()) :: :ok | {:error, :unknown_version}
   def activate(app, agent, module) do
@@ -53,7 +59,8 @@ defmodule AgentLab.Versions do
   end
 
   @doc "Append a score record to `evolution/<app>.jsonl` (FR-2 audit log)."
-  @spec record_score(atom(), atom(), module(), number() | nil, module() | nil) :: :ok | {:error, term()}
+  @spec record_score(atom(), atom(), module(), number() | nil, module() | nil) ::
+          :ok | {:error, term()}
   def record_score(app, agent, version, score, parent) do
     record(app, agent, %{
       type: "score",
@@ -136,6 +143,26 @@ defmodule AgentLab.Versions do
     {:reply, reply, state}
   end
 
+  def handle_call({:discard, app, agent}, _from, state) do
+    key = {app, agent}
+
+    reply =
+      case :ets.lookup(@table, key) do
+        [{_, %{versions: [_], current: 0}}] ->
+          :ets.delete(@table, key)
+          :ok
+
+        [{_, %{versions: versions, current: idx}}] when idx > 0 ->
+          :ets.insert(@table, {key, %{versions: versions, current: idx - 1}})
+          :ok
+
+        _ ->
+          :ok
+      end
+
+    {:reply, reply, state}
+  end
+
   def handle_call({:activate, app, agent, module}, _from, state) do
     key = {app, agent}
 
@@ -143,8 +170,12 @@ defmodule AgentLab.Versions do
       case :ets.lookup(@table, key) do
         [{_, %{versions: versions}}] ->
           case Enum.find_index(versions, &(&1 == module)) do
-            nil -> {:error, :unknown_version}
-            idx -> :ets.insert(@table, {key, %{versions: versions, current: idx}}); :ok
+            nil ->
+              {:error, :unknown_version}
+
+            idx ->
+              :ets.insert(@table, {key, %{versions: versions, current: idx}})
+              :ok
           end
 
         [] ->
