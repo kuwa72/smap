@@ -6,7 +6,9 @@ defmodule Smap.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      AgentLab.Versions
+      AgentLab.Versions,
+      AgentLab.Blackboard,
+      AgentLab.Transport
     ]
 
     opts = [strategy: :one_for_one, name: Smap.Supervisor]
