@@ -117,7 +117,7 @@ defmodule AgentLab.EDN do
   end
 
   defp scan_number(text, acc) do
-    {num, rest} = take_while(text, &(&1 in [?0..?9, ?-, ?+, ?.] or &1 in [?e, ?E]), [])
+    {num, rest} = take_while(text, &(&1 in ?0..?9 or &1 in ~c"-+.eE"), [])
 
     value =
       cond do
