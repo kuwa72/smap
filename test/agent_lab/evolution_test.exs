@@ -128,6 +128,19 @@ defmodule AgentLab.EvolutionTest do
     assert apply(Versions.current(@app, :eval_fail), :hi, []) == :v1
   end
 
+  test "step discards the loaded version when the evaluator raises" do
+    {:ok, res} =
+      Evolution.step(@app, :eval_crash,
+        prompt: "improve",
+        chat: chat_returning(src("EvoCrash.V1", ":v1")),
+        evaluate: fn _agent, _version -> raise "eval boom" end
+      )
+
+    assert res.decision == :discarded
+    assert res.error != nil
+    assert Versions.current(@app, :eval_crash) == nil
+  end
+
   test "step accepts an arity-1 evaluator and messages input" do
     messages = [%{role: "user", content: "improve"}]
 

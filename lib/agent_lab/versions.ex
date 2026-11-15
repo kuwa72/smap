@@ -105,13 +105,17 @@ defmodule AgentLab.Versions do
 
     case compile_and_load(source) do
       {:ok, module} ->
-        {versions, idx} =
+        {versions, idx, rejected} =
           case :ets.lookup(@table, key) do
-            [{_, %{versions: v}}] -> {v ++ [module], length(v)}
-            [] -> {[module], 0}
+            [{_, entry}] ->
+              {entry.versions ++ [module], length(entry.versions),
+               Map.get(entry, :rejected, MapSet.new())}
+
+            [] ->
+              {[module], 0, MapSet.new()}
           end
 
-        :ets.insert(@table, {key, %{versions: versions, current: idx}})
+        :ets.insert(@table, {key, %{versions: versions, current: idx, rejected: rejected}})
 
         record(app, agent, %{
           type: "load",
@@ -132,11 +136,17 @@ defmodule AgentLab.Versions do
 
     reply =
       case :ets.lookup(@table, key) do
-        [{_, %{versions: versions, current: idx}}] when idx > 0 ->
-          :ets.insert(@table, {key, %{versions: versions, current: idx - 1}})
-          :ok
+        [{_, entry}] ->
+          case previous_idx(entry, entry.current) do
+            nil ->
+              {:error, :no_previous_version}
 
-        _ ->
+            idx ->
+              :ets.insert(@table, {key, %{entry | current: idx}})
+              :ok
+          end
+
+        [] ->
           {:error, :no_previous_version}
       end
 
@@ -148,19 +158,38 @@ defmodule AgentLab.Versions do
 
     reply =
       case :ets.lookup(@table, key) do
-        [{_, %{versions: [_], current: 0}}] ->
-          :ets.delete(@table, key)
-          :ok
+        [{_, entry}] ->
+          rejected = MapSet.put(rejected(entry), Enum.at(entry.versions, entry.current))
+          entry = Map.put(entry, :rejected, rejected)
 
-        [{_, %{versions: versions, current: idx}}] when idx > 0 ->
-          :ets.insert(@table, {key, %{versions: versions, current: idx - 1}})
-          :ok
+          case previous_idx(entry, entry.current) do
+            nil ->
+              :ets.delete(@table, key)
+              :ok
 
-        _ ->
+            idx ->
+              :ets.insert(@table, {key, %{entry | current: idx, rejected: rejected}})
+              :ok
+          end
+
+        [] ->
           :ok
       end
 
     {:reply, reply, state}
+  end
+
+  defp rejected(entry), do: Map.get(entry, :rejected, MapSet.new())
+
+  # Largest index below `before_idx` whose version was not discarded.
+  defp previous_idx(entry, before_idx) do
+    entry.versions
+    |> Enum.take(before_idx)
+    |> Enum.with_index()
+    |> Enum.reverse()
+    |> Enum.find_value(fn {mod, idx} ->
+      unless MapSet.member?(rejected(entry), mod), do: idx
+    end)
   end
 
   def handle_call({:activate, app, agent, module}, _from, state) do
@@ -168,13 +197,13 @@ defmodule AgentLab.Versions do
 
     reply =
       case :ets.lookup(@table, key) do
-        [{_, %{versions: versions}}] ->
-          case Enum.find_index(versions, &(&1 == module)) do
+        [{_, entry}] ->
+          case Enum.find_index(entry.versions, &(&1 == module)) do
             nil ->
               {:error, :unknown_version}
 
             idx ->
-              :ets.insert(@table, {key, %{versions: versions, current: idx}})
+              :ets.insert(@table, {key, %{entry | current: idx}})
               :ok
           end
 

@@ -51,6 +51,7 @@ defmodule AgentLab.Evolution do
         {:ok, text} when is_binary(text) -> {:ok, extract_source(text)}
         text when is_binary(text) -> {:ok, extract_source(text)}
         {:error, reason} -> {:error, reason}
+        other -> {:error, {:bad_chat_response, other}}
       end
     end
   end

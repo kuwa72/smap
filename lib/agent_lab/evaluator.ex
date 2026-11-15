@@ -19,11 +19,22 @@ defmodule AgentLab.Evaluator do
 
       fun ->
         timeout = Keyword.get(context, :eval_timeout, @default_timeout)
-        task = Task.async(fn -> fun.(agent, version) end)
 
-        case Task.yield(task, timeout) || Task.shutdown(task) do
-          {:ok, result} -> normalize(result)
-          nil -> {:error, :timeout}
+        task =
+          Task.Supervisor.async_nolink(AgentLab.TaskSupervisor, fn -> fun.(agent, version) end)
+
+        case Task.yield(task, timeout) do
+          {:ok, result} ->
+            normalize(result)
+
+          {:exit, reason} ->
+            {:error, {:eval_crash, reason}}
+
+          nil ->
+            case Task.shutdown(task) do
+              {:ok, result} -> normalize(result)
+              _ -> {:error, :timeout}
+            end
         end
     end
   end
