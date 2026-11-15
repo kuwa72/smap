@@ -6,7 +6,10 @@ defmodule Smap.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      AgentLab.Versions
+      AgentLab.Versions,
+      {Registry, keys: :unique, name: AgentLab.Registry},
+      {DynamicSupervisor, name: AgentLab.Agents, strategy: :one_for_one},
+      {Task.Supervisor, name: AgentLab.TaskSupervisor}
     ]
 
     opts = [strategy: :one_for_one, name: Smap.Supervisor]
