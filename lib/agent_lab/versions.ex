@@ -11,6 +11,7 @@ defmodule AgentLab.Versions do
   use GenServer
 
   @table :agentlab_versions
+  @scores_table :agentlab_scores
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -27,6 +28,15 @@ defmodule AgentLab.Versions do
   def current(app, agent) do
     case :ets.lookup(@table, {app, agent}) do
       [{_, %{versions: versions, current: idx}}] -> Enum.at(versions, idx)
+      [] -> nil
+    end
+  end
+
+  @doc "Last recorded score for `{app, agent}` (the incumbent's score), or nil."
+  @spec current_score(atom(), atom()) :: number() | nil
+  def current_score(app, agent) do
+    case :ets.lookup(@scores_table, {app, agent}) do
+      [{_, %{current: score}}] -> score
       [] -> nil
     end
   end
@@ -53,15 +63,22 @@ defmodule AgentLab.Versions do
   end
 
   @doc "Append a score record to `evolution/<app>.jsonl` (FR-2 audit log)."
-  @spec record_score(atom(), atom(), module(), number() | nil, module() | nil) :: :ok | {:error, term()}
+  @spec record_score(atom(), atom(), module(), number() | nil, module() | nil) ::
+          :ok | {:error, term()}
   def record_score(app, agent, version, score, parent) do
-    record(app, agent, %{
-      type: "score",
-      version: Atom.to_string(version),
-      score: score,
-      parent: parent && Atom.to_string(parent),
-      ts: DateTime.utc_now() |> DateTime.to_iso8601()
-    })
+    case record(app, agent, %{
+           type: "score",
+           version: Atom.to_string(version),
+           score: score,
+           parent: parent && Atom.to_string(parent),
+           ts: DateTime.utc_now() |> DateTime.to_iso8601()
+         }) do
+      :ok ->
+        record_score_in_ets(app, agent, version, score)
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp record(app, _agent, map) do
@@ -85,9 +102,30 @@ defmodule AgentLab.Versions do
     end
   end
 
+  defp record_score_in_ets(app, agent, version, score) do
+    key = {app, agent}
+
+    entry =
+      case :ets.lookup(@scores_table, key) do
+        [{^key, scores}] ->
+          %{
+            scores
+            | current: score,
+              by_version: Map.put(scores.by_version, version, score)
+          }
+
+        [] ->
+          %{current: score, by_version: %{version => score}}
+      end
+
+    :ets.insert(@scores_table, {key, entry})
+    :ok
+  end
+
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, read_concurrency: true])
+    :ets.new(@scores_table, [:named_table, :public, read_concurrency: true])
     {:ok, %{}}
   end
 
@@ -143,8 +181,12 @@ defmodule AgentLab.Versions do
       case :ets.lookup(@table, key) do
         [{_, %{versions: versions}}] ->
           case Enum.find_index(versions, &(&1 == module)) do
-            nil -> {:error, :unknown_version}
-            idx -> :ets.insert(@table, {key, %{versions: versions, current: idx}}); :ok
+            nil ->
+              {:error, :unknown_version}
+
+            idx ->
+              :ets.insert(@table, {key, %{versions: versions, current: idx}})
+              :ok
           end
 
         [] ->
