@@ -7,6 +7,8 @@ defmodule Smap.Application do
   def start(_type, _args) do
     children = [
       AgentLab.Versions,
+      AgentLab.Blackboard,
+      AgentLab.Transport,
       {Registry, keys: :unique, name: AgentLab.Registry},
       {DynamicSupervisor, name: AgentLab.Agents, strategy: :one_for_one},
       {Task.Supervisor, name: AgentLab.TaskSupervisor}

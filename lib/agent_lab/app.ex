@@ -10,13 +10,16 @@ defmodule AgentLab.App do
   `propose` is a `current_version -> {:ok, source} | {:error, reason}` fun
   that supplies candidate code (LLM-backed once the FR-2 loop lands, stubbed
   in tests). Candidate sources must define a fresh module per version.
+
+  Apps that coordinate roles over `AgentLab.Transport` (e.g. travel_planner)
+  only implement the callbacks; the judgement callback may return any term.
   """
 
   alias AgentLab.{Definition, Evaluator, Evolution, Versions}
 
-  @callback agents() :: [String.t()]
+  @callback agents() :: [term()]
   @callback tasks() :: [term()]
-  @callback evaluate(module(), term()) :: number()
+  @callback evaluate(term(), term()) :: term()
 
   defmacro __using__(_opts) do
     quote do
@@ -24,7 +27,7 @@ defmodule AgentLab.App do
 
       def agents, do: []
       def tasks, do: []
-      def evaluate(_agent, _task), do: 0.0
+      def evaluate(_arg1, _arg2), do: 0.0
 
       defoverridable agents: 0, tasks: 0, evaluate: 2
     end
