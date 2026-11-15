@@ -1,0 +1,39 @@
+<!-- lead-flow begin (managed by `lead enable`; do not edit) -->
+## lead-flow（`/lead-flow <issue-number>`）
+
+このプロジェクトでは `lead` を使った Issue 駆動開発フローを採用している。ユーザーが `/lead-flow <issue-number>` で作業を指示したら、以下を実行する。
+
+1. `lead run <issue-number>` でブランチ・作業状態を作成する。
+2. TDD：まず失敗するテストを追加し Red を確認してから実装し、Green を確認する。
+3. `./test/run-tests.sh`（または `go test ./...`、プロジェクト固有のテストコマンド）をすべてパスさせる。
+4. `git push -u origin $(git branch --show-current)` でブランチを push する。
+5. `gh pr create --fill` で PR を作成する。
+6. `bin/ci-wait <pr-number>`（または `gh pr checks`）で CI が pass するまで待つ。
+7. CI 通過後に `lead review <pr-number>` でシナリオ生成テストを実行する。`SCENARIOS: n/m` が m/m になるまで所見に従って直す（2周上限は無い）。diff レビューは助言で、合否はシナリオが決める。
+8. `lead finish <issue-number> --merge` でマージと Issue クローズまで行う（`gh pr merge` を直接実行しない）。CI pass・生成シナリオ全 pass・規約ファイル非該当のときだけマージされる。承認ステップは無い。
+9. 関連 Issue が closed になったことを確認する。
+
+ヘッドレス dispatch では、実装エージェントは PR 作成までで停止する。レビューとマージはオーケストレーター（`lead land`）が実行するので、dispatch のプロンプトが本ブロックより優先される。
+
+停止時の扱い：
+
+- `--override-guardrail` は人間専用（human-only）のフラグで、エージェントは付けない。規約ファイル保護を解除できる唯一の手段。
+- シナリオは `<state-dir>/scenarios/<owner>_<repo>/<issue>.md`（worktree の外）に置く。実装エージェントは編集しない。誤りだと思ったら Issue にコメントして停止する。
+- `finish` が規約ファイル保護・シナリオ不合格で停止したら、自分で `gh pr merge` や `gh issue close` をせず、理由を `gh issue comment <issue-number> --body` に書いて終了する。
+
+ルール：
+- `main` には直接 push しない。`issue/<number>-<slug>` ブランチで作業する。
+- 1 Issue に原則 1 ブランチ/PR とし、Issue 側で明示がない限り分割しない。
+- `AGENTS.md`、`.agents/`、`.claude/`、`.devin/` などのプロジェクト規約ファイルは、当該 Issue で変更が明示されていない限り編集しない。
+
+<!-- lead-flow end -->
+
+## プロジェクト情報
+
+- 言語/スタック: Elixir 1.20 / OTP 29（mix プロジェクト。`requirements.txt` が要件定義書）
+- 検証コマンド（速い順）:
+  - `mix compile --warnings-as-errors`
+  - `mix test`（全テスト、外部依存なし・数秒で終わる）
+- フォーマット: `mix format`
+- 依存追加時は `mix deps.get` が必要（現在 deps なし。`:json` 等の OTP 組み込みを優先）
+- 実行時生成物 `evolution/*.jsonl` は gitignore 済み
