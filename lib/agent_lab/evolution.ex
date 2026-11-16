@@ -164,9 +164,15 @@ defmodule AgentLab.Evolution do
   defp previous_score(_app, _agent, nil, _context), do: nil
 
   defp previous_score(app, agent, previous, context) do
-    case Evaluator.eval_version(app, agent, previous, context) do
-      {:ok, score} -> score
-      {:error, _} -> nil
+    case Versions.score(app, agent, previous) do
+      nil ->
+        case Evaluator.eval_version(app, agent, previous, context) do
+          {:ok, score} -> score
+          {:error, _} -> nil
+        end
+
+      score ->
+        score
     end
   end
 end
