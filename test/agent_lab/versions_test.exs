@@ -97,6 +97,55 @@ defmodule AgentLab.VersionsTest do
     assert AgentLab.Versions.current_score(@app, :cs) == 0.4
   end
 
+  test "discard never lands current on a previously discarded version" do
+    {:ok, a} =
+      AgentLab.Versions.load(@app, :seq, """
+      defmodule Seq.V1 do
+        def hi, do: :v1
+      end
+      """)
+
+    {:ok, _b} =
+      AgentLab.Versions.load(@app, :seq, """
+      defmodule Seq.V2 do
+        def hi, do: :v2
+      end
+      """)
+
+    assert :ok = AgentLab.Versions.discard(@app, :seq)
+    assert AgentLab.Versions.current(@app, :seq) == a
+
+    {:ok, _c} =
+      AgentLab.Versions.load(@app, :seq, """
+      defmodule Seq.V3 do
+        def hi, do: :v3
+      end
+      """)
+
+    assert :ok = AgentLab.Versions.discard(@app, :seq)
+    assert AgentLab.Versions.current(@app, :seq) == a
+  end
+
+  test "discard with re-submitted duplicate module names keeps state" do
+    source = """
+    defmodule Dup.V1 do
+      def hi, do: :v1
+    end
+    """
+
+    {:ok, _} = AgentLab.Versions.load(@app, :dup, source)
+    {:ok, _} = AgentLab.Versions.load(@app, :dup, source)
+
+    assert :ok = AgentLab.Versions.discard(@app, :dup)
+    assert AgentLab.Versions.current(@app, :dup) != nil
+    assert length(AgentLab.Versions.history(@app, :dup)) == 2
+
+    {:ok, _} = AgentLab.Versions.load(@app, :dup, source)
+    assert :ok = AgentLab.Versions.discard(@app, :dup)
+    assert AgentLab.Versions.current(@app, :dup) != nil
+    assert length(AgentLab.Versions.history(@app, :dup)) == 3
+  end
+
   test "record_score appends JSON lines to evolution/<app>.jsonl" do
     {:ok, m1} =
       AgentLab.Versions.load(@app, :scored, """
