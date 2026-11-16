@@ -123,10 +123,15 @@ defmodule Smap.Orchestrator do
     end
   end
 
+  @name_pattern ~r/^[a-z0-9_]+$/
+
   defp normalize_spec(%{"app" => app, "module" => module, "agents" => agents})
        when is_binary(app) and is_binary(module) and is_list(agents) and agents != [] do
-    with {:ok, agents} <- normalize_agents(agents) do
+    with true <- Regex.match?(@name_pattern, app),
+         {:ok, agents} <- normalize_agents(agents) do
       {:ok, %{"app" => app, "module" => module, "agents" => agents}}
+    else
+      _ -> {:error, :invalid_spec}
     end
   end
 
@@ -134,25 +139,30 @@ defmodule Smap.Orchestrator do
 
   defp normalize_agents(agents) do
     Enum.reduce_while(agents, {:ok, []}, fn agent, {:ok, acc} ->
-      name = agent["name"]
-      code_template = agent["code_template"]
+      name = is_map(agent) && agent["name"]
+      code_template = is_map(agent) && agent["code_template"]
 
-      if is_binary(name) and is_binary(code_template) do
-        {:cont,
-         {:ok,
-          [
-            %{
-              "name" => name,
-              "role" => agent["role"] || name,
-              "prompt" => agent["prompt"] || "",
-              "code_template" => code_template,
-              "tools" => agent["tools"] || [],
-              "evaluation" => agent["evaluation"] || []
-            }
-            | acc
-          ]}}
-      else
-        {:halt, {:error, :invalid_agent}}
+      cond do
+        not is_binary(name) or not is_binary(code_template) ->
+          {:halt, {:error, :invalid_agent}}
+
+        not Regex.match?(@name_pattern, name) ->
+          {:halt, {:error, :invalid_agent_name}}
+
+        true ->
+          {:cont,
+           {:ok,
+            [
+              %{
+                "name" => name,
+                "role" => agent["role"] || name,
+                "prompt" => agent["prompt"] || "",
+                "code_template" => code_template,
+                "tools" => agent["tools"] || [],
+                "evaluation" => agent["evaluation"] || []
+              }
+              | acc
+            ]}}
       end
     end)
     |> case do
@@ -194,17 +204,26 @@ defmodule Smap.Orchestrator do
   defp load_app(spec) do
     try do
       case Code.compile_string(spec["module"]) do
-        [{mod, bin} | _] ->
-          case :code.load_binary(mod, ~c"orchestrator", bin) do
-            {:module, _} -> {:ok, mod}
-            {:error, reason} -> {:error, reason}
-          end
-
         [] ->
           {:error, :no_module_compiled}
+
+        compiled ->
+          Enum.each(compiled, fn {mod, bin} -> :code.load_binary(mod, ~c"orchestrator", bin) end)
+
+          case Enum.find(compiled, fn {mod, _} -> app_module?(mod) end) do
+            {mod, _} -> {:ok, mod}
+            nil -> {:error, :no_app_module}
+          end
       end
     rescue
       e -> {:error, Exception.message(e)}
+    end
+  end
+
+  defp app_module?(mod) do
+    case Module.split(mod) do
+      ["Apps" | _] -> true
+      _ -> false
     end
   end
 

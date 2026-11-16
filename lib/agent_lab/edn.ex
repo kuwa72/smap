@@ -47,7 +47,7 @@ defmodule AgentLab.EDN do
 
   defp escape_string(binary) do
     inner =
-      for <<c <- binary>>, into: "" do
+      for <<c::utf8 <- binary>>, into: "" do
         case c do
           ?" -> "\\\""
           ?\\ -> "\\\\"
