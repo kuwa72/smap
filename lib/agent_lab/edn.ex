@@ -20,6 +20,49 @@ defmodule AgentLab.EDN do
     end
   end
 
+  @doc "Encode a term back to EDN text (inverse of `decode/1`)."
+  @spec encode(term()) :: String.t()
+  def encode(term), do: encode_term(term)
+
+  defp encode_term(%{} = map) do
+    inner =
+      map
+      |> Enum.map(fn {k, v} -> encode_key(k) <> " " <> encode_term(v) end)
+      |> Enum.join(" ")
+
+    "{" <> inner <> "}"
+  end
+
+  defp encode_term(list) when is_list(list) do
+    "[" <> Enum.map_join(list, ", ", &encode_term/1) <> "]"
+  end
+
+  defp encode_term(binary) when is_binary(binary), do: escape_string(binary)
+  defp encode_term(atom) when atom in [true, false, nil], do: Atom.to_string(atom)
+  defp encode_term(num) when is_number(num), do: to_string(num)
+
+  defp encode_key(k) when is_atom(k), do: ":" <> Atom.to_string(k)
+  defp encode_key(k) when is_binary(k), do: escape_string(k)
+  defp encode_key(k), do: encode_term(k)
+
+  defp escape_string(binary) do
+    inner =
+      for <<c <- binary>>, into: "" do
+        case c do
+          ?" -> "\\\""
+          ?\\ -> "\\\\"
+          ?\n -> "\\n"
+          ?\t -> "\\t"
+          ?\r -> "\\r"
+          ?\b -> "\\b"
+          ?\f -> "\\f"
+          _ -> <<c::utf8>>
+        end
+      end
+
+    "\"" <> inner <> "\""
+  end
+
   # --- tokenizer ---
 
   defp tokenize(text), do: tokenize(text, [])

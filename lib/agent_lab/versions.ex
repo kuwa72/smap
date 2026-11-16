@@ -35,6 +35,15 @@ defmodule AgentLab.Versions do
     end
   end
 
+  @doc "Source code of the current version, or nil."
+  @spec source(atom(), atom()) :: String.t() | nil
+  def source(app, agent) do
+    case :ets.lookup(@table, {app, agent}) do
+      [{_, %{sources: sources, current: idx}}] -> Enum.at(sources, idx)
+      _ -> nil
+    end
+  end
+
   @doc "Score recorded for `version`, or nil."
   @spec score(atom(), atom(), module()) :: number() | nil
   def score(app, agent, version) do
@@ -159,21 +168,27 @@ defmodule AgentLab.Versions do
 
     case compile_and_load(source) do
       {:ok, module} ->
-        {versions, idx, prev, rejected} =
+        {versions, idx, prev, rejected, sources} =
           case :ets.lookup(@table, key) do
             [{_, entry}] ->
               versions = Map.get(entry, :versions, [])
 
               {versions ++ [module], length(versions), Map.get(entry, :current),
-               Map.get(entry, :rejected, MapSet.new())}
+               Map.get(entry, :rejected, MapSet.new()), Map.get(entry, :sources, []) ++ [source]}
 
             [] ->
-              {[module], 0, nil, MapSet.new()}
+              {[module], 0, nil, MapSet.new(), [source]}
           end
 
         :ets.insert(@table, {
           key,
-          %{versions: versions, current: idx, previous: prev, rejected: rejected}
+          %{
+            versions: versions,
+            current: idx,
+            previous: prev,
+            rejected: rejected,
+            sources: sources
+          }
         })
 
         record(app, agent, %{
