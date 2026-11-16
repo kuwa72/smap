@@ -141,6 +141,18 @@ defmodule AgentLab.EvolutionTest do
     assert Versions.current(@app, :eval_crash) == nil
   end
 
+  test "step clamps out-of-range evaluator scores to 0.0..1.0" do
+    {:ok, res} =
+      Evolution.step(@app, :clamped,
+        prompt: "improve",
+        chat: chat_returning(src("EvoClamp.V1", ":v1")),
+        evaluate: fn _agent, _version -> 1.5 end
+      )
+
+    assert res.decision == :adopted
+    assert res.score == 1.0
+  end
+
   test "step accepts an arity-1 evaluator and messages input" do
     messages = [%{role: "user", content: "improve"}]
 

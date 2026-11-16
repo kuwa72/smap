@@ -130,7 +130,10 @@ defmodule AgentLab.Evolution do
   defp decide(app, agent, version, score, previous, context) do
     previous_score = previous_score(app, agent, previous, context)
 
-    adopted? = is_nil(previous) or is_nil(previous_score) or score > previous_score
+    adopted? =
+      is_nil(previous) or
+        (is_nil(previous_score) and score > 0) or
+        (not is_nil(previous_score) and score > previous_score)
 
     if adopted? do
       Versions.record_score(app, agent, version, score, previous)

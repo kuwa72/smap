@@ -76,8 +76,12 @@ defmodule AgentLab.Evaluator do
     end
   end
 
-  defp normalize(score) when is_number(score), do: {:ok, score * 1.0}
-  defp normalize({:ok, score}) when is_number(score), do: {:ok, score * 1.0}
+  defp normalize(score) when is_number(score),
+    do: {:ok, score |> max(0.0) |> min(1.0) |> Kernel.*(1.0)}
+
+  defp normalize({:ok, score}) when is_number(score),
+    do: {:ok, score |> max(0.0) |> min(1.0) |> Kernel.*(1.0)}
+
   defp normalize({:error, reason}), do: {:error, reason}
   defp normalize(other), do: {:error, {:bad_score, other}}
 

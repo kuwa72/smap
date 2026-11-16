@@ -218,7 +218,7 @@ defmodule AgentLab.Versions do
     reply =
       case :ets.lookup(@table, key) do
         [{_, entry}] ->
-          rejected = MapSet.put(rejected(entry), Enum.at(entry.versions, entry.current))
+          rejected = MapSet.put(rejected(entry), entry.current)
           entry = Map.put(entry, :rejected, rejected)
 
           case previous_idx(entry, entry.current) do
@@ -244,7 +244,15 @@ defmodule AgentLab.Versions do
     reply =
       case :ets.lookup(@table, key) do
         [{_, entry}] ->
-          case Enum.find_index(entry.versions, &(&1 == module)) do
+          idx =
+            entry.versions
+            |> Enum.with_index()
+            |> Enum.reverse()
+            |> Enum.find_value(fn {mod, i} ->
+              if mod == module and not MapSet.member?(rejected(entry), i), do: i
+            end)
+
+          case idx do
             nil ->
               {:error, :unknown_version}
 
@@ -269,13 +277,15 @@ defmodule AgentLab.Versions do
   defp rejected(entry), do: Map.get(entry, :rejected, MapSet.new())
 
   # Largest index below `before_idx` whose version was not discarded.
+  # `rejected` holds version *indices*, not module atoms, so re-submitted
+  # duplicate module names cannot corrupt the tracking.
   defp previous_idx(entry, before_idx) do
     entry.versions
     |> Enum.take(before_idx)
     |> Enum.with_index()
     |> Enum.reverse()
-    |> Enum.find_value(fn {mod, idx} ->
-      unless MapSet.member?(rejected(entry), mod), do: idx
+    |> Enum.find_value(fn {_mod, idx} ->
+      unless MapSet.member?(rejected(entry), idx), do: idx
     end)
   end
 

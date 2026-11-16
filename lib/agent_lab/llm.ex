@@ -79,12 +79,13 @@ defmodule AgentLab.LLM do
         |> Enum.reduce(%{}, fn line, acc ->
           case String.split(line, "=", parts: 2) do
             [k, v] ->
-              k = String.trim(k)
+              k = k |> String.trim() |> String.trim_leading("export ") |> String.trim()
+              v = v |> String.trim() |> unquote_value()
 
               if k == "" or String.starts_with?(k, "#") do
                 acc
               else
-                Map.put(acc, k, String.trim(v))
+                Map.put(acc, k, v)
               end
 
             _ ->
@@ -96,4 +97,9 @@ defmodule AgentLab.LLM do
         %{}
     end
   end
+
+  defp unquote_value(<<q, rest::binary>>) when q in [?", ?'],
+    do: rest |> String.trim_trailing(<<q>>) |> String.trim_trailing("\n")
+
+  defp unquote_value(v), do: v
 end
