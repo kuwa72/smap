@@ -92,6 +92,30 @@ defmodule Smap.OrchestratorTest do
     assert AgentLab.Versions.current(String.to_atom(@app), @agent) != nil
   end
 
+  test "retries design once when the first response is not a valid spec" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    Application.put_env(:smap, :orchestrator_chat, fn _messages ->
+      case Agent.get_and_update(counter, fn n -> {n, n + 1} end) do
+        0 -> {:ok, "sorry, here is code ```elixir\ndefmodule X do end\n```"}
+        _ -> stub_chat([%{content: "Return ONLY a JSON object"}])
+      end
+    end)
+
+    assert :ok = Smap.Orchestrator.submit_goal("retry me")
+
+    state =
+      wait_for(fn ->
+        case Smap.Orchestrator.status().status do
+          :running -> nil
+          other -> other
+        end
+      end)
+
+    assert state == :done
+    assert Smap.Orchestrator.status().result.app == @app
+  end
+
   test "second goal while running is rejected" do
     # First goal completes fast with the stub; submit twice quickly.
     assert :ok = Smap.Orchestrator.submit_goal("first")

@@ -95,9 +95,21 @@ defmodule Smap.Orchestrator do
     {"app": "...", "module": "...", "agents": [...]}
     """
 
+    do_design(prompt, 2)
+  end
+
+  defp do_design(_prompt, 0), do: {:error, :invalid_spec}
+
+  defp do_design(prompt, attempts) do
     case chat([%{role: "user", content: prompt}]) do
-      {:ok, text} -> parse_spec(text)
-      {:error, _} = error -> error
+      {:ok, text} ->
+        case parse_spec(text) do
+          {:ok, _spec} = ok -> ok
+          {:error, _} -> do_design(prompt, attempts - 1)
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -158,8 +170,8 @@ defmodule Smap.Orchestrator do
                 "role" => agent["role"] || name,
                 "prompt" => agent["prompt"] || "",
                 "code_template" => code_template,
-                "tools" => agent["tools"] || [],
-                "evaluation" => agent["evaluation"] || []
+                "tools" => list_or_empty(agent["tools"]),
+                "evaluation" => list_or_empty(agent["evaluation"])
               }
               | acc
             ]}}
@@ -191,6 +203,9 @@ defmodule Smap.Orchestrator do
     File.write!(Path.join("lib/apps", "#{spec["app"]}.ex"), spec["module"])
     :ok
   end
+
+  defp list_or_empty(list) when is_list(list), do: list
+  defp list_or_empty(_), do: []
 
   defp normalize_evaluation(evaluation) when is_list(evaluation) do
     Enum.flat_map(evaluation, fn

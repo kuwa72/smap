@@ -29,7 +29,7 @@ defmodule AgentLab.LLM do
     config = config()
 
     req_opts =
-      [api_key: config.api_key, base_url: config.base_url]
+      [api_key: config.api_key, base_url: config.base_url, receive_timeout: 120_000]
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Keyword.merge(opts)
 
