@@ -12,7 +12,9 @@ defmodule Smap.Application do
       {DynamicSupervisor, name: AgentLab.Agents, strategy: :one_for_one},
       {Task.Supervisor, name: AgentLab.TaskSupervisor},
       AgentLab.Transport,
-      Smap.Orchestrator
+      Smap.Orchestrator,
+      Smap.Chat.Session,
+      Smap.Web.Endpoint
     ]
 
     opts = [strategy: :one_for_one, name: Smap.Supervisor]

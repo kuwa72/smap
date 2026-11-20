@@ -22,7 +22,9 @@ defmodule Smap.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:req_llm, "~> 1.30"}
+      {:req_llm, "~> 1.30"},
+      {:bandit, "~> 1.6"},
+      {:plug, "~> 1.16"}
     ]
   end
 end
