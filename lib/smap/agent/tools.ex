@@ -141,11 +141,31 @@ defmodule Smap.Agent.Tools do
 
   defp allowed_path?(expanded) do
     roots = Application.get_env(:smap, :allowed_file_roots, [File.cwd!()])
-    target_parts = Path.split(expanded)
+    target_parts = expanded |> resolve_realpath() |> Path.split()
 
     Enum.any?(roots, fn root ->
-      root_parts = root |> Path.expand() |> Path.split()
+      root_parts = root |> Path.expand() |> resolve_realpath() |> Path.split()
       List.starts_with?(target_parts, root_parts)
+    end)
+  end
+
+  defp resolve_realpath(path) do
+    path
+    |> Path.split()
+    |> Enum.reduce("", fn segment, acc ->
+      next = if acc == "", do: segment, else: Path.join(acc, segment)
+
+      case File.read_link(next) do
+        {:ok, target} ->
+          if Path.type(target) == :absolute do
+            Path.expand(target)
+          else
+            Path.expand(target, Path.dirname(next))
+          end
+
+        {:error, _} ->
+          next
+      end
     end)
   end
 

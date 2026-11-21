@@ -142,7 +142,10 @@ defmodule Smap.Chat.Session do
   end
 
   defp agent_enabled? do
-    not is_nil(Application.get_env(:smap, :agent_chat)) or
-      is_binary(AgentLab.LLM.config().api_key)
+    cond do
+      not is_nil(Application.get_env(:smap, :agent_chat)) -> true
+      Code.ensure_loaded?(Mix) and Mix.env() == :test -> false
+      true -> is_binary(AgentLab.LLM.config().api_key)
+    end
   end
 end

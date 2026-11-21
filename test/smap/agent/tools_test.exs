@@ -66,5 +66,9 @@ defmodule Smap.Agent.ToolsTest do
 
     outside = Path.expand("..", tmp_dir)
     assert %{ok: false, error: _} = Tools.execute("list_local_files", %{"path" => outside})
+
+    link_path = Path.join(tmp_dir, "escape_link")
+    File.ln_s!(outside, link_path)
+    assert %{ok: false, error: _} = Tools.execute("list_local_files", %{"path" => link_path})
   end
 end

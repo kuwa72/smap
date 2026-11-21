@@ -28,6 +28,7 @@ defmodule Smap.Agent.LoopTest do
     on_exit(fn ->
       Application.delete_env(:smap, :agent_chat)
       Application.delete_env(:smap, :agent_max_steps)
+      Application.delete_env(:smap, :agent_timeout)
       Manager.reset()
       Session.clear()
     end)
@@ -153,5 +154,15 @@ defmodule Smap.Agent.LoopTest do
     assert reply =~ "上限"
     assert Manager.current().version == 1
     assert Manager.render_current() =~ "音楽プレイヤー v1"
+  end
+
+  test "enforces overall deadline and aborts hung LLM calls cleanly" do
+    Application.put_env(:smap, :agent_chat, fn _messages ->
+      Process.sleep(5_000)
+      {:ok, ~s({"action":"reply","message":"late"})}
+    end)
+
+    assert {:error, :timeout} = Loop.respond("時間切れテスト", [], timeout: 80)
+    assert Process.alive?(Process.whereis(Loop))
   end
 end

@@ -5,17 +5,18 @@ defmodule Smap.Agent.Loop do
   Receives natural-language instructions from `Smap.Chat.Session`, inspects the
   current `Smap.AppSpace` state, invokes tools (`apply_app_update`,
   `read_app_code`, `rollback_app`, `inspect_runtime`, `list_local_files`) in a
-  bounded loop, feeds back compile/runtime errors for automatic self-correction,
-  and returns a user-facing reply.
+  bounded loop with a strict overall deadline, feeds back compile/runtime
+  errors for automatic self-correction, and returns a user-facing reply.
   """
 
   use GenServer
 
-  alias AgentLab.LLM
-  alias Smap.Agent.Tools
+  alias AgentLab.{LLM, Tools}
+  alias Smap.Agent.Tools, as: AgentTools
   alias Smap.AppSpace.Manager
 
   @default_max_steps 6
+  @default_timeout 150_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -25,7 +26,18 @@ defmodule Smap.Agent.Loop do
   @spec respond(String.t(), [map()], keyword()) ::
           {:ok, String.t(), %{steps: [map()]}} | {:error, term()}
   def respond(content, history \\ [], opts \\ []) when is_binary(content) do
-    GenServer.call(__MODULE__, {:respond, content, history, opts}, 180_000)
+    timeout =
+      Keyword.get_lazy(opts, :timeout, fn ->
+        Application.get_env(:smap, :agent_timeout, @default_timeout)
+      end)
+
+    GenServer.call(__MODULE__, {:respond, content, history, opts, timeout}, timeout + 15_000)
+  end
+
+  @doc "Return the tool steps recorded during the last turn."
+  @spec last_steps() :: [map()]
+  def last_steps do
+    GenServer.call(__MODULE__, :last_steps)
   end
 
   @impl true
@@ -34,15 +46,20 @@ defmodule Smap.Agent.Loop do
   end
 
   @impl true
-  def handle_call({:respond, content, history, opts}, _from, state) do
+  def handle_call(:last_steps, _from, state) do
+    {:reply, state.last_steps, state}
+  end
+
+  def handle_call({:respond, content, history, opts, timeout}, _from, state) do
     max_steps =
       Keyword.get_lazy(opts, :max_steps, fn ->
         Application.get_env(:smap, :agent_max_steps, @default_max_steps)
       end)
 
+    deadline = System.monotonic_time(:millisecond) + timeout
     messages = build_initial_messages(content, history)
 
-    case run_loop(messages, [], max_steps) do
+    case run_loop(messages, [], max_steps, deadline) do
       {:ok, reply, steps} ->
         {:reply, {:ok, reply, %{steps: steps}}, %{state | last_steps: steps}}
 
@@ -53,39 +70,45 @@ defmodule Smap.Agent.Loop do
 
   # --- loop ---
 
-  defp run_loop(_messages, steps, 0) do
+  defp run_loop(_messages, steps, 0, _deadline) do
     {:ok, "自己改修の最大試行回数上限に達しました。現在の安定バージョンは維持されています。指示を具体化して再度お試しください。", Enum.reverse(steps)}
   end
 
-  defp run_loop(messages, steps, remaining) do
-    case chat(messages) do
-      {:ok, raw_reply} ->
-        case parse_action(raw_reply) do
-          {:tool, tool_name, args} ->
-            result = Tools.execute(tool_name, args)
-            step_record = %{tool: tool_name, args: args, result: result}
-            result_json = :json.encode(result) |> IO.iodata_to_binary()
+  defp run_loop(messages, steps, remaining, deadline) do
+    remaining_ms = deadline - System.monotonic_time(:millisecond)
 
-            next_messages =
-              messages ++
-                [
-                  %{role: "assistant", content: raw_reply},
-                  %{
-                    role: "user",
-                    content:
-                      "Tool result (#{tool_name}): #{result_json}\n" <>
-                        "If it failed, fix the code and retry with apply_app_update. If done, return {\"action\":\"reply\",\"message\":\"...\"}."
-                  }
-                ]
+    if remaining_ms <= 0 do
+      {:error, :timeout, Enum.reverse(steps)}
+    else
+      case chat_with_timeout(messages, remaining_ms) do
+        {:ok, raw_reply} ->
+          case parse_action(raw_reply) do
+            {:tool, tool_name, args} ->
+              result = AgentTools.execute(tool_name, args)
+              step_record = %{tool: tool_name, args: args, result: result}
+              result_json = :json.encode(result) |> IO.iodata_to_binary()
 
-            run_loop(next_messages, [step_record | steps], remaining - 1)
+              next_messages =
+                messages ++
+                  [
+                    %{role: "assistant", content: raw_reply},
+                    %{
+                      role: "user",
+                      content:
+                        "Tool result (#{tool_name}): #{result_json}\n" <>
+                          "If it failed, fix the code and retry with apply_app_update. If done, return {\"action\":\"reply\",\"message\":\"...\"}."
+                    }
+                  ]
 
-          {:reply, message} ->
-            {:ok, message, Enum.reverse(steps)}
-        end
+              run_loop(next_messages, [step_record | steps], remaining - 1, deadline)
 
-      {:error, reason} ->
-        {:error, reason, Enum.reverse(steps)}
+            {:reply, message} ->
+              {:ok, message, Enum.reverse(steps)}
+          end
+
+        {:error, reason} ->
+          {:error, reason, Enum.reverse(steps)}
+      end
     end
   end
 
@@ -94,10 +117,16 @@ defmodule Smap.Agent.Loop do
   defp build_initial_messages(content, history) do
     system_prompt = build_system_prompt()
 
+    trimmed_history =
+      case List.last(history) do
+        %{role: "user", content: ^content} -> Enum.drop(history, -1)
+        %{"role" => "user", "content" => ^content} -> Enum.drop(history, -1)
+        _ -> history
+      end
+
     recent_history =
-      history
+      trimmed_history
       |> Enum.take(-10)
-      |> Enum.reject(fn msg -> msg[:role] == "user" and msg[:content] == content end)
       |> Enum.map(fn msg ->
         %{
           role: to_string(msg[:role] || msg["role"]),
@@ -112,7 +141,7 @@ defmodule Smap.Agent.Loop do
   defp build_system_prompt do
     current = Manager.current()
     runtime = Manager.status()
-    tools_json = :json.encode(Tools.definitions()) |> IO.iodata_to_binary()
+    tools_json = :json.encode(AgentTools.definitions()) |> IO.iodata_to_binary()
 
     current_section =
       case current do
@@ -200,8 +229,15 @@ defmodule Smap.Agent.Loop do
     end
   end
 
-  defp chat(messages) do
+  defp chat_with_timeout(messages, remaining_ms) do
     fun = Application.get_env(:smap, :agent_chat, &LLM.chat/1)
-    fun.(messages)
+
+    case Tools.run_isolated(fn -> fun.(messages) end, remaining_ms) do
+      {:ok, {:ok, text}} when is_binary(text) -> {:ok, text}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:ok, other} -> {:error, {:unexpected_llm_reply, other}}
+      {:error, :timeout} -> {:error, :timeout}
+      {:error, reason} -> {:error, reason}
+    end
   end
 end
