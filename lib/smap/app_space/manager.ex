@@ -268,12 +268,22 @@ defmodule Smap.AppSpace.Manager do
 
     with {:ok, list} <- specs do
       Enum.reduce_while(list, :ok, fn spec, :ok ->
-        case DynamicSupervisor.start_child(@supervisor, spec) do
+        case safe_start_child(spec) do
           {:ok, _pid} -> {:cont, :ok}
           {:ok, _pid, _info} -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, {:child_start_failed, reason}}}
         end
       end)
+    end
+  end
+
+  defp safe_start_child(spec) do
+    try do
+      DynamicSupervisor.start_child(@supervisor, spec)
+    rescue
+      e -> {:error, Exception.message(e)}
+    catch
+      kind, reason -> {:error, {kind, reason}}
     end
   end
 

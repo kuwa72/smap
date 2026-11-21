@@ -153,6 +153,22 @@ defmodule Smap.AppSpace.ManagerTest do
     assert {:error, _} = Manager.deploy(broken_child)
     assert Manager.current().version == 1
     assert Process.whereis(Smap.UserApp.CounterV1.Store) != nil
+
+    # 4. Invalid child_spec must not crash Manager itself
+    manager_pid = Process.whereis(Manager)
+
+    invalid_spec_app = """
+    defmodule Smap.UserApp.InvalidSpec do
+      use Smap.AppSpace.Behaviour
+      def child_specs, do: [123]
+      def render(_), do: "<p>ok</p>"
+    end
+    """
+
+    assert {:error, {:child_start_failed, _}} = Manager.deploy(invalid_spec_app)
+    assert Process.whereis(Manager) == manager_pid
+    assert Manager.current().version == 1
+    assert Process.whereis(Smap.UserApp.CounterV1.Store) != nil
   end
 
   test "explicit rollback switches back from V2 to V1" do
