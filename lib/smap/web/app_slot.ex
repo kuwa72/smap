@@ -25,7 +25,7 @@ defmodule Smap.Web.AppSlot do
   @doc "Render the current app slot inside an isolated task with timeout."
   @spec safe_render() :: String.t()
   def safe_render do
-    renderer = Application.get_env(:smap, :app_renderer, &__MODULE__.default_render/0)
+    renderer = Application.get_env(:smap, :app_renderer, &Smap.AppSpace.Manager.render_current/0)
     timeout = Application.get_env(:smap, :app_render_timeout, @default_timeout)
 
     case Tools.run_isolated(fn -> invoke_renderer(renderer) end, timeout) do
