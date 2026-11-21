@@ -7,6 +7,7 @@ defmodule Smap.Web.Router do
 
   use Plug.Router
 
+  alias Smap.AppSpace.Manager
   alias Smap.Chat.Session
   alias Smap.Web.AppSlot
 
@@ -14,7 +15,13 @@ defmodule Smap.Web.Router do
   plug(:dispatch)
 
   get "/" do
-    html = render_shell(AppSlot.safe_render())
+    title =
+      case Manager.current() do
+        %{meta: %{name: name}} -> "Smap - #{AppSlot.escape_html(name)}"
+        _ -> "Smap"
+      end
+
+    html = render_shell(title, AppSlot.safe_render())
 
     conn
     |> put_resp_content_type("text/html", "utf-8")
@@ -41,6 +48,37 @@ defmodule Smap.Web.Router do
     conn
     |> put_resp_content_type("text/html", "utf-8")
     |> send_resp(200, AppSlot.safe_render())
+  end
+
+  match "/app/*path" do
+    conn = Plug.Conn.fetch_query_params(conn)
+    {:ok, body, conn} = read_body(conn)
+    params = merge_params(conn.query_params, body)
+
+    case Manager.handle_request(conn.method, path, params) do
+      {:ok, status, headers, resp_body} ->
+        conn =
+          Enum.reduce(headers, conn, fn {k, v}, acc ->
+            put_resp_header(acc, String.downcase(k), v)
+          end)
+
+        send_resp(conn, status, resp_body)
+
+      {:file, file_path, content_type} ->
+        if File.regular?(file_path) do
+          conn
+          |> put_resp_content_type(content_type)
+          |> send_file(200, file_path)
+        else
+          send_json(conn, 404, %{error: "file_not_found"})
+        end
+
+      {:error, :no_app} ->
+        send_json(conn, 404, %{error: "no_app_loaded"})
+
+      {:error, reason} ->
+        send_json(conn, 500, %{error: inspect(reason)})
+    end
   end
 
   get "/events" do
@@ -79,6 +117,15 @@ defmodule Smap.Web.Router do
     end
   end
 
+  defp merge_params(query_params, "") when is_map(query_params), do: query_params
+
+  defp merge_params(query_params, body) when is_map(query_params) and is_binary(body) do
+    case decode_json(body) do
+      {:ok, %{} = json_map} -> Map.merge(query_params, json_map)
+      _ -> Map.put(query_params, "_raw_body", body)
+    end
+  end
+
   defp decode_json(body) do
     try do
       {:ok, :json.decode(body)}
@@ -93,14 +140,14 @@ defmodule Smap.Web.Router do
     |> send_resp(status, :json.encode(data) |> IO.iodata_to_binary())
   end
 
-  defp render_shell(initial_app_html) do
+  defp render_shell(title, initial_app_html) do
     """
     <!DOCTYPE html>
     <html lang="ja">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>Smap</title>
+      <title>#{title}</title>
       <style>
         * { box-sizing: border-box; }
         body {
@@ -254,6 +301,12 @@ defmodule Smap.Web.Router do
           const res = await fetch("/api/app/view");
           if (!res.ok) return;
           slotEl.innerHTML = await res.text();
+          slotEl.querySelectorAll("script").forEach((oldScript) => {
+            const s = document.createElement("script");
+            Array.from(oldScript.attributes).forEach((a) => s.setAttribute(a.name, a.value));
+            s.textContent = oldScript.textContent;
+            oldScript.replaceWith(s);
+          });
         }
 
         async function sendCurrentInput() {
