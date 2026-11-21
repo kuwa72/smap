@@ -14,6 +14,7 @@ defmodule Smap.Application do
       AgentLab.Transport,
       Smap.Orchestrator,
       Smap.Chat.Session,
+      Smap.Agent.Loop,
       {DynamicSupervisor, name: Smap.AppSpace.Supervisor, strategy: :one_for_one},
       Smap.AppSpace.Manager,
       Smap.Web.Endpoint

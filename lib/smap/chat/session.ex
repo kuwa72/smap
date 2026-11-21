@@ -26,7 +26,7 @@ defmodule Smap.Chat.Session do
   @doc "Append a user message, generate a reply via configured responder, and broadcast both."
   @spec send_message(String.t()) :: {:ok, %{user: message(), assistant: message()}}
   def send_message(content) when is_binary(content) do
-    GenServer.call(__MODULE__, {:send_message, content}, 15_000)
+    GenServer.call(__MODULE__, {:send_message, content}, 180_000)
   end
 
   @doc "Clear conversation history."
@@ -130,7 +130,22 @@ defmodule Smap.Chat.Session do
     end
   end
 
-  defp default_responder(content, _history) do
-    "受け取りました: 「#{content}」（現在チャット核のみ稼働中です。自己改修ループ接続後にアプリへ反映されます）"
+  defp default_responder(content, history) do
+    if agent_enabled?() do
+      case Smap.Agent.Loop.respond(content, history) do
+        {:ok, reply, _info} -> reply
+        {:error, reason} -> "AI エージェント実行でエラーが発生しました: #{inspect(reason)}"
+      end
+    else
+      "受け取りました: 「#{content}」（LLM API キー未設定のためチャット核のみで応答しています）"
+    end
+  end
+
+  defp agent_enabled? do
+    cond do
+      not is_nil(Application.get_env(:smap, :agent_chat)) -> true
+      Code.ensure_loaded?(Mix) and Mix.env() == :test -> false
+      true -> is_binary(AgentLab.LLM.config().api_key)
+    end
   end
 end
