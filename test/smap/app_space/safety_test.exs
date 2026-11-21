@@ -35,6 +35,36 @@ defmodule Smap.AppSpace.SafetyTest do
     end
   end
 
+  test "rejects defmodule hidden inside control-flow expressions" do
+    source = """
+    if true do
+      defmodule Smap.Web.Router do
+        def hacked, do: :oops
+      end
+    end
+    """
+
+    assert {:error, {:forbidden_module, _}} = Safety.validate(source)
+  end
+
+  test "rejects import of forbidden modules and dynamic apply calls" do
+    import_src = """
+    defmodule Smap.UserApp.BadImport do
+      import System
+      def render(_), do: halt(0)
+    end
+    """
+
+    apply_src = """
+    defmodule Smap.UserApp.BadApply do
+      def render(_), do: apply(System, :halt, [0])
+    end
+    """
+
+    assert {:error, {:forbidden_call, _}} = Safety.validate(import_src)
+    assert {:error, {:forbidden_call, _}} = Safety.validate(apply_src)
+  end
+
   test "returns error on syntax error" do
     assert {:error, {:syntax_error, _}} = Safety.validate("defmodule Smap.UserApp.Broken do")
   end

@@ -166,4 +166,46 @@ defmodule Smap.AppSpace.ManagerTest do
     assert Process.whereis(Smap.UserApp.CounterV1.Store) != nil
     assert Manager.render_current() =~ "V1:"
   end
+
+  test "restores previous bytecode on failure and rollback for same-name module redeploys" do
+    same_v1 = """
+    defmodule Smap.UserApp.SameApp do
+      use Smap.AppSpace.Behaviour
+      def app_meta, do: %{name: "SameV1", description: ""}
+      def render(_), do: "<p>same-v1</p>"
+    end
+    """
+
+    same_broken = """
+    defmodule Smap.UserApp.SameApp do
+      use Smap.AppSpace.Behaviour
+      def app_meta, do: %{name: "SameBroken", description: ""}
+      def render(_), do: raise("broken same-name v2")
+    end
+    """
+
+    same_v2 = """
+    defmodule Smap.UserApp.SameApp do
+      use Smap.AppSpace.Behaviour
+      def app_meta, do: %{name: "SameV2", description: ""}
+      def render(_), do: "<p>same-v2</p>"
+    end
+    """
+
+    assert {:ok, _} = Manager.deploy(same_v1)
+    assert Manager.render_current() == "<p>same-v1</p>"
+
+    # Broken redeploy with the exact same module name must restore V1 bytecode
+    assert {:error, _} = Manager.deploy(same_broken)
+    assert Manager.current().version == 1
+    assert Manager.render_current() == "<p>same-v1</p>"
+
+    # Valid redeploy with the same module name, then explicit rollback back to V1
+    assert {:ok, _} = Manager.deploy(same_v2)
+    assert Manager.render_current() == "<p>same-v2</p>"
+
+    assert {:ok, rolled} = Manager.rollback()
+    assert rolled.version == 1
+    assert Manager.render_current() == "<p>same-v1</p>"
+  end
 end

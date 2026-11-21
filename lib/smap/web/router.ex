@@ -52,32 +52,17 @@ defmodule Smap.Web.Router do
 
   match "/app/*path" do
     conn = Plug.Conn.fetch_query_params(conn)
-    {:ok, body, conn} = read_body(conn)
-    params = merge_params(conn.query_params, body)
 
-    case Manager.handle_request(conn.method, path, params) do
-      {:ok, status, headers, resp_body} ->
-        conn =
-          Enum.reduce(headers, conn, fn {k, v}, acc ->
-            put_resp_header(acc, String.downcase(k), v)
-          end)
+    case read_body(conn) do
+      {:ok, body, conn} ->
+        params = merge_params(conn.query_params, body)
+        dispatch_app_request(conn, path, params)
 
-        send_resp(conn, status, resp_body)
-
-      {:file, file_path, content_type} ->
-        if File.regular?(file_path) do
-          conn
-          |> put_resp_content_type(content_type)
-          |> send_file(200, file_path)
-        else
-          send_json(conn, 404, %{error: "file_not_found"})
-        end
-
-      {:error, :no_app} ->
-        send_json(conn, 404, %{error: "no_app_loaded"})
+      {:more, _partial, conn} ->
+        send_json(conn, 413, %{error: "payload_too_large"})
 
       {:error, reason} ->
-        send_json(conn, 500, %{error: inspect(reason)})
+        send_json(conn, 400, %{error: inspect(reason)})
     end
   end
 
@@ -114,6 +99,33 @@ defmodule Smap.Web.Router do
           {:ok, conn} -> sse_loop(conn)
           {:error, _} -> conn
         end
+    end
+  end
+
+  defp dispatch_app_request(conn, path, params) do
+    case Manager.handle_request(conn.method, path, params) do
+      {:ok, status, headers, resp_body} ->
+        conn =
+          Enum.reduce(headers, conn, fn {k, v}, acc ->
+            put_resp_header(acc, String.downcase(k), v)
+          end)
+
+        send_resp(conn, status, resp_body)
+
+      {:file, file_path, content_type} ->
+        if File.regular?(file_path) do
+          conn
+          |> put_resp_content_type(content_type)
+          |> send_file(200, file_path)
+        else
+          send_json(conn, 404, %{error: "file_not_found"})
+        end
+
+      {:error, :no_app} ->
+        send_json(conn, 404, %{error: "no_app_loaded"})
+
+      {:error, reason} ->
+        send_json(conn, 500, %{error: inspect(reason)})
     end
   end
 

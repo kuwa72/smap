@@ -5,8 +5,8 @@ defmodule Smap.AppSpace.Manager do
   Compiles and hot-swaps user-generated `Smap.UserApp.*` modules without
   stopping the process, supervises their child processes under
   `Smap.AppSpace.Supervisor`, broadcasts SSE update events, and automatically
-  rolls back to the previous stable version on compile, startup, or render
-  failure.
+  rolls back (including restoring previous BEAM bytecode for same-name
+  redeployments) on compile, startup, or render failure.
   """
 
   use GenServer
@@ -25,6 +25,7 @@ defmodule Smap.AppSpace.Manager do
           version: pos_integer(),
           module: module(),
           modules: [module()],
+          compiled: [{module(), binary()}],
           source: String.t(),
           meta: %{name: String.t(), description: String.t()},
           loaded_at: String.t()
@@ -148,8 +149,8 @@ defmodule Smap.AppSpace.Manager do
 
     with :ok <- Safety.validate(source),
          {:ok, compiled} <- compile_isolated(source),
-         {:ok, main_mod, all_mods} <- load_compiled(compiled),
-         :ok <- activate_version(main_mod, prev) do
+         :ok <- Safety.validate_compiled_modules(compiled),
+         {:ok, main_mod, all_mods} <- activate_compiled(compiled, prev) do
       meta = safe_meta(main_mod)
       next_version = length(state.history) + 1
 
@@ -157,6 +158,7 @@ defmodule Smap.AppSpace.Manager do
         version: next_version,
         module: main_mod,
         modules: all_mods,
+        compiled: compiled,
         source: source,
         meta: meta,
         loaded_at: DateTime.utc_now() |> DateTime.to_iso8601()
@@ -185,8 +187,8 @@ defmodule Smap.AppSpace.Manager do
     target = Enum.at(state.history, target_idx)
     prev = current_entry(state)
 
-    case activate_version(target.module, prev) do
-      :ok ->
+    case activate_compiled(target.compiled, prev) do
+      {:ok, _main_mod, _all_mods} ->
         new_state = %{state | current_index: target_idx, last_error: nil}
         broadcast_update(target)
         {:reply, {:ok, target}, new_state}
@@ -213,24 +215,42 @@ defmodule Smap.AppSpace.Manager do
     end
   end
 
-  defp load_compiled(compiled) do
-    Enum.each(compiled, fn {mod, bin} -> :code.load_binary(mod, ~c"app_space", bin) end)
-    mods = Enum.map(compiled, &elem(&1, 0))
-    main_mod = Enum.find(mods, &function_exported?(&1, :render, 1)) || hd(mods)
-    {:ok, main_mod, mods}
-  end
-
-  defp activate_version(new_mod, prev_entry) do
+  defp activate_compiled(compiled, prev_entry) do
     stop_all_children()
 
-    with :ok <- start_children(new_mod),
-         :ok <- smoke_test_render(new_mod) do
-      :ok
+    with {:ok, main_mod, all_mods} <- load_binaries(compiled),
+         :ok <- start_children(main_mod),
+         :ok <- smoke_test_render(main_mod) do
+      {:ok, main_mod, all_mods}
     else
       {:error, reason} ->
         stop_all_children()
-        if prev_entry, do: start_children(prev_entry.module)
+        restore_previous(prev_entry)
         {:error, reason}
+    end
+  end
+
+  defp load_binaries(compiled) do
+    result =
+      Enum.reduce_while(compiled, :ok, fn {mod, bin}, :ok ->
+        case :code.load_binary(mod, ~c"app_space", bin) do
+          {:module, ^mod} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:load_failed, mod, reason}}}
+        end
+      end)
+
+    with :ok <- result do
+      mods = Enum.map(compiled, &elem(&1, 0))
+      main_mod = Enum.find(mods, &function_exported?(&1, :render, 1)) || hd(mods)
+      {:ok, main_mod, mods}
+    end
+  end
+
+  defp restore_previous(nil), do: :ok
+
+  defp restore_previous(prev_entry) do
+    with {:ok, main_mod, _mods} <- load_binaries(prev_entry.compiled) do
+      start_children(main_mod)
     end
   end
 
